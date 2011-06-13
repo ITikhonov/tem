@@ -1,7 +1,85 @@
+#include <stdio.h>
+#include <math.h>
+
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
-#include <stdio.h>
 
+#include <pulse/pulseaudio.h>
+
+
+
+//////////////////////////////////////////////////////////////////////////////////////////
+// AUDIO
+//////////////////////////////////////////////////////////////////////////////////////////
+
+static void pa_state_cb(pa_context *c, void *userdata) {
+	pa_context_state_t state=pa_context_get_state(c);
+	int *pa_ready=userdata;
+	switch  (state) {
+	case PA_CONTEXT_FAILED:
+	case PA_CONTEXT_TERMINATED: *pa_ready=2; break;
+	case PA_CONTEXT_READY: *pa_ready=1; break;
+	default:;
+	}
+}
+
+static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
+	static int offset=0;
+	printf("length %u\n",length);
+	int i;
+	short buf[length/2];
+	for(i=0;i<length/2;i++) { buf[i]=10000*sin((offset+i)/50); }
+	offset+=i;
+	pa_stream_write(s,buf,length,0,0,PA_SEEK_RELATIVE);
+}
+
+static void audio_underflow_cb(pa_stream *s, void *userdata) {
+	printf("underflow\n");
+}
+
+
+void audio_init() {
+	pa_threaded_mainloop *pa_ml=pa_threaded_mainloop_new();
+	pa_mainloop_api *pa_mlapi=pa_threaded_mainloop_get_api(pa_ml);
+	pa_context *pa_ctx=pa_context_new(pa_mlapi, "te");
+	pa_stream *ps;
+	pa_context_connect(pa_ctx, NULL, 0, NULL);
+	int pa_ready = 0;
+	pa_context_set_state_callback(pa_ctx, pa_state_cb, &pa_ready);
+
+	pa_threaded_mainloop_start(pa_ml);
+	while(pa_ready==0) { ; }
+
+	printf("audio ready\n");
+
+	if (pa_ready == 2) {
+		pa_context_disconnect(pa_ctx);
+		pa_context_unref(pa_ctx);
+		pa_threaded_mainloop_free(pa_ml);
+	}
+
+	pa_sample_spec ss;
+	ss.rate=44100;
+	ss.channels=1;
+	ss.format=PA_SAMPLE_S16LE;
+	ps=pa_stream_new(pa_ctx,"Playback",&ss,NULL);
+	pa_stream_set_write_callback(ps,audio_request_cb,NULL);
+	pa_stream_set_underflow_callback(ps,audio_underflow_cb,NULL);
+
+	pa_buffer_attr bufattr;
+	bufattr.fragsize = (uint32_t)-1;
+	bufattr.maxlength = pa_usec_to_bytes(20000,&ss);
+	bufattr.minreq = pa_usec_to_bytes(0,&ss);
+	bufattr.prebuf = (uint32_t)-1;
+	bufattr.tlength = pa_usec_to_bytes(20000,&ss);
+
+	pa_stream_connect_playback(ps,NULL,&bufattr,
+		PA_STREAM_INTERPOLATE_TIMING|PA_STREAM_ADJUST_LATENCY|PA_STREAM_AUTO_TIMING_UPDATE,NULL,NULL);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+// VISUAL
+//////////////////////////////////////////////////////////////////////////////////////////
 
 
 int cursor;
@@ -96,6 +174,8 @@ int main(int argc,char *argv[])
 	gtk_container_add(GTK_CONTAINER(window),a);
 	g_signal_connect(a,"expose-event",G_CALLBACK(on_expose_event),NULL);
 	gtk_widget_show_all(window);
+
+	audio_init();
 
 	gtk_main();
 	
