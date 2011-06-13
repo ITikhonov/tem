@@ -1,5 +1,10 @@
 #include <gtk/gtk.h>
+#include <gdk/gdkkeysyms.h>
 #include <stdio.h>
+
+
+
+int cursor;
 
 char viewbuf[80*20];
 
@@ -16,11 +21,13 @@ static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpoint
 	w/=PANGO_SCALE;
 	h/=PANGO_SCALE;
 
-	cairo_save(cr);
-	cairo_set_source_rgb(cr,0,0.8,0);
-	cairo_rectangle(cr,w*5,h*5,w,h);
-	cairo_fill(cr);
-	cairo_restore(cr);
+	if(cursor<20*80 && cursor>=0) {
+		cairo_save(cr);
+		cairo_set_source_rgb(cr,0,0.8,0);
+		cairo_rectangle(cr,(cursor%80+1)*w,(cursor/80+1)*h,w,h);
+		cairo_fill(cr);
+		cairo_restore(cr);
+	}
 
 	cairo_move_to(cr,w,h);
 
@@ -32,6 +39,11 @@ static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpoint
 		cairo_rel_move_to(cr,0,h);
 	}
 
+	cairo_move_to(cr,w*81+w/2,h);
+	cairo_rel_line_to(cr,0,h*20);
+	cairo_line_to(cr,w,h*21);
+	cairo_stroke(cr);
+
 	g_object_unref(p);
 
 
@@ -39,16 +51,38 @@ static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpoint
 	return FALSE;
 }
 
-static gboolean on_keypress(GtkWidget *widget, GdkEventExpose *event, gpointer data) {
-	printf("pressed\n");
-	gtk_main_quit();
+
+static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data) {
+	printf("pressed %s\n",event->string);
+
+	switch(event->keyval) {
+	case GDK_Escape: gtk_main_quit(); break;
+	case GDK_BackSpace: cursor--; cursor%=(80*20); viewbuf[cursor]=' '; break;
+	case GDK_Left: cursor--; break;
+	case GDK_Right: cursor++; break;
+	case GDK_Up: cursor-=80; break;
+	case GDK_Down: cursor+=80; break;
+	case GDK_Return: cursor=(cursor/80+1)*80;; break;
+	default:
+		if(event->length==1) {
+			viewbuf[cursor++]=event->string[0];
+		}
+	}
+
+	printf("%d --\n",cursor);
+	if(cursor<0) cursor=80*20+cursor;
+	else cursor%=(80*20);
+	printf("-- %d\n",cursor);
+
+	gdk_window_invalidate_rect(gtk_widget_get_window(widget),0,1);
+
 	return FALSE;
 }
 
 int main(int argc,char *argv[])
 {
 	int i;
-	for(i=0;i<80*20;i++) {viewbuf[i]='A'+(i%25);}
+	for(i=0;i<80*20;i++) {viewbuf[i]=' ';}
 
 	gtk_init(&argc,&argv);
 	GtkWidget *window=gtk_window_new (GTK_WINDOW_TOPLEVEL);
@@ -57,7 +91,6 @@ int main(int argc,char *argv[])
 	g_signal_connect(window,"destroy",G_CALLBACK (gtk_main_quit),NULL);
 	g_signal_connect(window,"key-press-event",G_CALLBACK(on_keypress),NULL);
 	gtk_widget_add_events(window,GDK_KEY_PRESS_MASK);
-
 
 	GtkWidget *a=gtk_drawing_area_new();
 	gtk_container_add(GTK_CONTAINER(window),a);
