@@ -17,7 +17,7 @@ static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpoint
 	h/=PANGO_SCALE;
 
 	cairo_save(cr);
-	cairo_set_source_rgb(cr,1,1,1);
+	cairo_set_source_rgb(cr,0,0.8,0);
 	cairo_rectangle(cr,w*5,h*5,w,h);
 	cairo_fill(cr);
 	cairo_restore(cr);
