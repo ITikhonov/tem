@@ -1,15 +1,100 @@
 #include <stdio.h>
+#include <string.h>
 #include <math.h>
+#include <stdint.h>
 
 #include <gtk/gtk.h>
 #include <gdk/gdkkeysyms.h>
 
 #include <pulse/pulseaudio.h>
 
+int32_t sounds[26*26][4096]; // 23.44Hz
+
+char viewbuf[80*20];
+int cursor=0;
+int lastsound=0;
+
+inline char gc() {
+	char c=viewbuf[cursor++];
+	cursor%=80*20;
+	return c;
+}
 
 
 //////////////////////////////////////////////////////////////////////////////////////////
-// AUDIO
+// SOUND GENERATION
+//////////////////////////////////////////////////////////////////////////////////////////
+
+int32_t resample(int sndno,int note,int sampleno) {
+	float r=exp2(note/12.0);
+	float s=sampleno*r;
+	float e=s+r;
+	int is=((int)s);
+	int es=e;
+	int n=(es-is-1);
+
+	int32_t *p=sounds[sndno];
+
+	int32_t v=0;
+	int i; for(i=is+1;i<es;i++) { v+=p[i%4096]; }
+	float ps=1-(s-is);
+	float pe=e-es;
+	int32_t vs=p[is%4096] * ps;
+	int32_t ve=p[es%4096] * pe;
+
+	int ret=round((vs+v+ve)/(ps+n+pe));
+
+	//printf("resample(%u %0.2f %0.2f(%u) %0.2f(%u)): %u %d %d ([%0.2f]%d+%d+%d[%0.2f])\n",
+	//			sndno, r,s,is,e,es, sampleno,ret,n, ps,vs,v,ve,pe);
+	return ret;
+}
+
+inline int16_t c2s16(char c) {
+	const float M=('Z'-'A')+1;
+	if(c>='a'&&c<='z') {
+		return (INT16_MIN+1)*((c-'a'+1)/M);
+	} else if(c>='A'&&c<='Z') {
+		return INT16_MAX*((c-'A'+1)/M);
+	} else {
+		return 0;
+	}
+}
+
+int generateSound(unsigned int len) {
+	int i;
+	int x=-1;
+	int32_t y=0;
+	for(i=0;i<4096;i++) {
+		int nx=len*(i/4096.0);
+		if(nx!=x) { y=c2s16(gc()); x=nx; }
+
+		sounds[lastsound][i]=y;
+	}
+	return 0;
+}
+
+
+static char soundbuf[80];
+static int soundbuflen=0;
+
+int defineSound() {
+	printf("define sound\n");
+	unsigned int A=gc()-'A';
+	unsigned int B=gc()-'A';
+	unsigned int n=(A*26)|B;
+	printf("define sound %u\n",n);
+	if(B<0||B>676) return -1;
+	lastsound=n;
+
+	int s=cursor;
+	n=0;
+	while(gc()!=' ') n++;
+	cursor=s;
+	return generateSound(n);
+}
+
+//////////////////////////////////////////////////////////////////////////////////////////
+// AUDIO OUTPUT
 //////////////////////////////////////////////////////////////////////////////////////////
 
 static void pa_state_cb(pa_context *c, void *userdata) {
@@ -25,10 +110,11 @@ static void pa_state_cb(pa_context *c, void *userdata) {
 
 static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 	static int offset=0;
-	printf("length %u\n",length);
 	int i;
-	short buf[length/2];
-	for(i=0;i<length/2;i++) { buf[i]=10000*sin((offset+i)/50); }
+	uint32_t buf[length/4];
+	for(i=0;i<length/4;i++) {
+		buf[i]=resample(lastsound,51,offset+i);
+	}
 	offset+=i;
 	pa_stream_write(s,buf,length,0,0,PA_SEEK_RELATIVE);
 }
@@ -59,9 +145,9 @@ void audio_init() {
 	}
 
 	pa_sample_spec ss;
-	ss.rate=44100;
+	ss.rate=96000;
 	ss.channels=1;
-	ss.format=PA_SAMPLE_S16LE;
+	ss.format=PA_SAMPLE_S24_32LE;
 	ps=pa_stream_new(pa_ctx,"Playback",&ss,NULL);
 	pa_stream_set_write_callback(ps,audio_request_cb,NULL);
 	pa_stream_set_underflow_callback(ps,audio_underflow_cb,NULL);
@@ -78,13 +164,22 @@ void audio_init() {
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
-// VISUAL
+// COMMANDS
 //////////////////////////////////////////////////////////////////////////////////////////
 
+void execute() {
+	for(;cursor<80*20;) {
+		switch(gc()) {
+		case 'd': defineSound();
+		case ' ': cursor++; break;
+		default: return;
+		}
+	}
+}
 
-int cursor;
-
-char viewbuf[80*20];
+//////////////////////////////////////////////////////////////////////////////////////////
+// VISUAL
+//////////////////////////////////////////////////////////////////////////////////////////
 
 static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpointer data) {
 	cairo_t *cr = gdk_cairo_create (widget->window);
@@ -122,6 +217,17 @@ static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpoint
 	cairo_line_to(cr,w,h*21);
 	cairo_stroke(cr);
 
+
+	for(i=0;i<512;i++) {
+#ifndef VIEWA4
+		int32_t v=sounds[lastsound][i*8];
+		cairo_rectangle(cr,w+i,h*30, 1,5*h*(v/32767.0));
+#else
+		int32_t v=resample(lastsound,51,i);
+		cairo_rectangle(cr,w+i,h*30, 1,5*h*(v/32767.0));
+#endif
+	}
+	cairo_fill(cr);
 	g_object_unref(p);
 
 
@@ -129,21 +235,27 @@ static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpoint
 	return FALSE;
 }
 
-
 static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data) {
 	printf("pressed %s\n",event->string);
 
-	switch(event->keyval) {
-	case GDK_Escape: gtk_main_quit(); break;
-	case GDK_BackSpace: cursor--; cursor%=(80*20); viewbuf[cursor]=' '; break;
-	case GDK_Left: cursor--; break;
-	case GDK_Right: cursor++; break;
-	case GDK_Up: cursor-=80; break;
-	case GDK_Down: cursor+=80; break;
-	case GDK_Return: cursor=(cursor/80+1)*80;; break;
-	default:
-		if(event->length==1) {
-			viewbuf[cursor++]=event->string[0];
+	if(event->state&GDK_MOD1_MASK) {
+		switch(event->keyval) {
+		//case GDK_p: start_sound((cursor/80)*80); break;
+		case GDK_e: execute(); break;
+		}
+	} else {
+		switch(event->keyval) {
+		case GDK_Escape: gtk_main_quit(); break;
+		case GDK_BackSpace: cursor--; cursor%=(80*20); viewbuf[cursor]=' '; break;
+		case GDK_Left: cursor--; break;
+		case GDK_Right: cursor++; break;
+		case GDK_Up: cursor-=80; break;
+		case GDK_Down: cursor+=80; break;
+		case GDK_Return: cursor=(cursor/80+1)*80;; break;
+		default:
+			if(event->length==1) {
+				viewbuf[cursor++]=event->string[0];
+			}
 		}
 	}
 
@@ -157,10 +269,31 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 	return FALSE;
 }
 
+
+void load() {
+	int i;
+	FILE *f=fopen("test.snd","r");
+	for(i=0;i<20;i++) {
+		int j;
+		for(j=0;j<80;j++) {
+			int c=fgetc(f);
+			if(c<1) return;
+
+			if(c=='\n') break;
+			viewbuf[i*80+j]=c;
+		}
+		for(;j<80;j++) {
+			viewbuf[i*80+j]=' ';
+		}
+	}
+	fclose(f);
+}
+
 int main(int argc,char *argv[])
 {
-	int i;
-	for(i=0;i<80*20;i++) {viewbuf[i]=' ';}
+	memset(viewbuf,' ',sizeof(viewbuf));
+	load();
+
 
 	gtk_init(&argc,&argv);
 	GtkWidget *window=gtk_window_new (GTK_WINDOW_TOPLEVEL);
@@ -181,7 +314,4 @@ int main(int argc,char *argv[])
 	
 	return 0;
 }
-
-
-
 
