@@ -14,6 +14,9 @@ char viewbuf[80*20];
 int cursor=0;
 int lastsound=0;
 
+GCond* tickcond=0;
+GMutex *tickmutex=0;
+
 inline char gc() {
 	char c=viewbuf[cursor++];
 	printf("gc: '%c'\n",c);
@@ -114,11 +117,18 @@ static void pa_state_cb(pa_context *c, void *userdata) {
 	}
 }
 
+int ticksize=12000; // 1/8 second at 96kHz
+static int offset=0;
+
 static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
-	static int offset=0;
 	int i;
 	uint32_t buf[length/4];
 	for(i=0;i<length/4;i++) {
+		if((offset+i-1)/ticksize != (offset+i)/ticksize) {
+			g_cond_signal(tickcond);
+		}
+
+
 		int k;
 		int32_t v=0;
 		for(k=0;k<16;k++) {
@@ -138,11 +148,12 @@ static void audio_underflow_cb(pa_stream *s, void *userdata) {
 }
 
 
+pa_stream *ps;
+
 void audio_init() {
 	pa_threaded_mainloop *pa_ml=pa_threaded_mainloop_new();
 	pa_mainloop_api *pa_mlapi=pa_threaded_mainloop_get_api(pa_ml);
 	pa_context *pa_ctx=pa_context_new(pa_mlapi, "te");
-	pa_stream *ps;
 	pa_context_connect(pa_ctx, NULL, 0, NULL);
 	int pa_ready = 0;
 	pa_context_set_state_callback(pa_ctx, pa_state_cb, &pa_ready);
@@ -174,7 +185,7 @@ void audio_init() {
 	bufattr.tlength = pa_usec_to_bytes(20000,&ss);
 
 	pa_stream_connect_playback(ps,NULL,&bufattr,
-		PA_STREAM_INTERPOLATE_TIMING|PA_STREAM_ADJUST_LATENCY|PA_STREAM_AUTO_TIMING_UPDATE,NULL,NULL);
+		PA_STREAM_INTERPOLATE_TIMING|PA_STREAM_ADJUST_LATENCY|PA_STREAM_AUTO_TIMING_UPDATE|PA_STREAM_START_CORKED,NULL,NULL);
 }
 
 int setSound() {
@@ -229,7 +240,7 @@ int playNote(char c0) {
 // COMMANDS
 //////////////////////////////////////////////////////////////////////////////////////////
 
-void execute() {
+int execute() {
 	for(;;) {
 		printf(".\n");
 		char c;
@@ -237,10 +248,10 @@ void execute() {
 		case 'd': defineSound(); break;
 		case 's': setSound(); break;
 		case ' ': break;
-		case 'A'...'G': playNote(c); break;
-		default: return;
+		case 'A'...'G': playNote(c); return 0; break;
+		default: return -1;
 		}
-		if(cursor==0) break;
+		if(cursor==0) return -1;
 	}
 }
 
@@ -308,7 +319,7 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 	if(event->state&GDK_MOD1_MASK) {
 		switch(event->keyval) {
 		//case GDK_p: start_sound((cursor/80)*80); break;
-		case GDK_e: execute(); break;
+		case GDK_e: pa_stream_cork(ps,0,0,0); break;
 		}
 	} else {
 		switch(event->keyval) {
@@ -356,15 +367,49 @@ void load() {
 	fclose(f);
 }
 
+GtkWidget *window;
+
+gboolean update_view(gpointer _) {
+	printf("update_view\n");
+	gdk_window_invalidate_rect(gtk_widget_get_window(window),0,1);
+
+	return FALSE;
+}
+
+GThread *tick_thread;
+
+gpointer tick(gpointer _) {
+	for(;;) {
+		g_mutex_lock(tickmutex);
+		g_cond_wait(tickcond,tickmutex);
+		g_mutex_unlock(tickmutex);
+
+		printf("tick %u\n",offset);
+		g_idle_add(update_view,0);
+
+		if(execute()==-1) {
+			pa_stream_cork(ps,1,0,0);
+			printf("stop");
+		}
+	}
+	return 0;
+}
+
 int main(int argc,char *argv[])
 {
+	g_thread_init(0);
+
 	memset(viewbuf,' ',sizeof(viewbuf));
 	load();
 
 
 	gtk_init(&argc,&argv);
-	GtkWidget *window=gtk_window_new (GTK_WINDOW_TOPLEVEL);
+	window=gtk_window_new (GTK_WINDOW_TOPLEVEL);
 	gtk_window_set_title(GTK_WINDOW (window),"te");
+
+	tickcond=g_cond_new();
+	tickmutex=g_mutex_new();
+	tick_thread=g_thread_create(tick,0,0,0);
 
 	g_signal_connect(window,"destroy",G_CALLBACK (gtk_main_quit),NULL);
 	g_signal_connect(window,"key-press-event",G_CALLBACK(on_keypress),NULL);
