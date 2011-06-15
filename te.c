@@ -16,9 +16,12 @@ int lastsound=0;
 
 inline char gc() {
 	char c=viewbuf[cursor++];
+	printf("gc: '%c'\n",c);
 	cursor%=80*20;
 	return c;
 }
+
+int play[16]={-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
 
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -74,16 +77,19 @@ int generateSound(unsigned int len) {
 }
 
 
-static char soundbuf[80];
-static int soundbuflen=0;
-
-int defineSound() {
-	printf("define sound\n");
+int gsnd() {
 	unsigned int A=gc()-'A';
 	unsigned int B=gc()-'A';
 	unsigned int n=(A*26)|B;
-	printf("define sound %u\n",n);
+	printf("read sound %u\n",n);
 	if(B<0||B>676) return -1;
+	return n;
+}
+
+int defineSound() {
+	printf("define sound\n");
+	int n=gsnd();
+	if(n==-1) return -1;
 	lastsound=n;
 
 	int s=cursor;
@@ -113,7 +119,15 @@ static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 	int i;
 	uint32_t buf[length/4];
 	for(i=0;i<length/4;i++) {
-		buf[i]=resample(lastsound,51,offset+i);
+		int k;
+		int32_t v=0;
+		for(k=0;k<16;k++) {
+			int x=play[k];
+			int note=x&0xff;
+			if(note==0xff) continue;
+			v+=resample(x>>8,x&0xff,offset+i);
+		}
+		buf[i]=v;
 	}
 	offset+=i;
 	pa_stream_write(s,buf,length,0,0,PA_SEEK_RELATIVE);
@@ -163,17 +177,70 @@ void audio_init() {
 		PA_STREAM_INTERPOLATE_TIMING|PA_STREAM_ADJUST_LATENCY|PA_STREAM_AUTO_TIMING_UPDATE,NULL,NULL);
 }
 
+int setSound() {
+	play[0]=(gsnd()<<8)|255;
+	printf("setting sound %d\n",play[0]);
+	return 0;
+}
+
+int playNote(char c0) {
+	int sharp=0;
+	char c=gc();
+	if(c=='#') { sharp=1; c=gc(); }
+	unsigned int octave=c-'0';
+	int n;
+
+	printf("play note %c%s%c\n",c0,sharp?"#":"",c);
+
+	if(sharp) {
+		switch(c0) {
+		case 'C': n=-5; break;
+		case 'D': n=-3; break;
+		case 'F': n=0; break;
+		case 'G': n=2; break;
+		case 'A': n=4; break;
+		default: return -1;
+		}
+	} else {
+		switch(c0) {
+		case 'C': n=-6; break;
+		case 'D': n=-4; break;
+		case 'E': n=-2; break;
+		case 'F': n=-1; break;
+		case 'G': n=1; break;
+		case 'A': n=3; break;
+		case 'B': n=5; break;
+		default: return -1;
+		}
+	}
+	//  C   C# D  D#  E   F   F# G G# A A# B
+	//  -6 -5 -4  -3 -2  -1   0  1 2  3 4  5
+
+	int note=octave*12+n;
+
+	printf("play note %c%s%c (%u)\n",c0,sharp?"#":"",c,note);
+
+	// 0 is F#, A is 3
+	play[0]=(play[0]&0xffffff00)|note;
+	return 0;
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 // COMMANDS
 //////////////////////////////////////////////////////////////////////////////////////////
 
 void execute() {
-	for(;cursor<80*20;) {
-		switch(gc()) {
-		case 'd': defineSound();
-		case ' ': cursor++; break;
+	for(;;) {
+		printf(".\n");
+		char c;
+		switch(c=gc()) {
+		case 'd': defineSound(); break;
+		case 's': setSound(); break;
+		case ' ': break;
+		case 'A'...'G': playNote(c); break;
 		default: return;
 		}
+		if(cursor==0) break;
 	}
 }
 
