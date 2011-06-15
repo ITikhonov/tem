@@ -123,6 +123,7 @@ static int offset=0;
 static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 	int i;
 	uint32_t buf[length/4];
+
 	for(i=0;i<length/4;i++) {
 		if((offset+i-1)/ticksize != (offset+i)/ticksize) {
 			g_cond_signal(tickcond);
@@ -194,6 +195,10 @@ int setSound() {
 	return 0;
 }
 
+void playRawNote(uint8_t note) {
+	play[0]=(play[0]&0xffffff00)|note;
+}
+
 int playNote(char c0) {
 	int sharp=0;
 	char c=gc();
@@ -232,7 +237,7 @@ int playNote(char c0) {
 	printf("play note %c%s%c (%u)\n",c0,sharp?"#":"",c,note);
 
 	// 0 is F#, A is 3
-	play[0]=(play[0]&0xffffff00)|note;
+	playRawNote(note);
 	return 0;
 }
 
@@ -249,6 +254,7 @@ int execute() {
 		case 's': setSound(); break;
 		case ' ': break;
 		case 'A'...'G': playNote(c); return 0; break;
+		case '-': return 0; break;
 		default: return -1;
 		}
 		if(cursor==0) return -1;
@@ -319,7 +325,7 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 	if(event->state&GDK_MOD1_MASK) {
 		switch(event->keyval) {
 		//case GDK_p: start_sound((cursor/80)*80); break;
-		case GDK_e: pa_stream_cork(ps,0,0,0); break;
+		case GDK_e: offset=0; pa_stream_cork(ps,0,0,0); break;
 		}
 	} else {
 		switch(event->keyval) {
@@ -389,6 +395,8 @@ gpointer tick(gpointer _) {
 
 		if(execute()==-1) {
 			pa_stream_cork(ps,1,0,0);
+			pa_stream_flush(ps,0,0);
+			playRawNote(255);
 			printf("stop");
 		}
 	}
