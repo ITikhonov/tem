@@ -19,7 +19,6 @@ GMutex *tickmutex=0;
 
 inline char gc() {
 	char c=viewbuf[cursor++];
-	printf("gc: '%c'\n",c);
 	cursor%=80*20;
 	return c;
 }
@@ -117,15 +116,24 @@ static void pa_state_cb(pa_context *c, void *userdata) {
 	}
 }
 
-int ticksize=12000; // 1/8 second at 96kHz
+int ticksize=12000/16; // one 16th of 1/8 second beat (at 96kHz)
 static int offset=0;
+static int beatno=0;
+static int tickinbeat=0;
 
 static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 	int i;
 	uint32_t buf[length/4];
 
+	if(pa_stream_is_corked(s)) return;
+
+	printf("cb %lu\n",length);
+
 	for(i=0;i<length/4;i++) {
 		if((offset+i-1)/ticksize != (offset+i)/ticksize) {
+			beatno=offset/(ticksize*16);
+			tickinbeat=(offset/ticksize)%16;
+			printf("signal\n");
 			g_cond_signal(tickcond);
 		}
 
@@ -182,7 +190,7 @@ void audio_init() {
 	bufattr.fragsize = (uint32_t)-1;
 	bufattr.maxlength = pa_usec_to_bytes(20000,&ss);
 	bufattr.minreq = pa_usec_to_bytes(0,&ss);
-	bufattr.prebuf = (uint32_t)-1;
+	bufattr.prebuf = 0;
 	bufattr.tlength = pa_usec_to_bytes(20000,&ss);
 
 	pa_stream_connect_playback(ps,NULL,&bufattr,
@@ -247,14 +255,13 @@ int playNote(char c0) {
 
 int execute() {
 	for(;;) {
-		printf(".\n");
 		char c;
 		switch(c=gc()) {
 		case 'd': defineSound(); break;
 		case 's': setSound(); break;
 		case ' ': break;
-		case 'A'...'G': playNote(c); return 0; break;
-		case '-': return 0; break;
+		case 'A'...'G': if(tickinbeat==0) { playNote(c); } else { cursor--; } return 0;
+		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
 		default: return -1;
 		}
 		if(cursor==0) return -1;
@@ -426,7 +433,7 @@ gpointer tick(gpointer _) {
 		g_cond_wait(tickcond,tickmutex);
 		g_mutex_unlock(tickmutex);
 
-		printf("tick %u\n",offset);
+		printf("tick %u (%u in %u)\n",offset,tickinbeat,beatno);
 		g_idle_add(update_view,0);
 
 		if(execute()==-1) {
