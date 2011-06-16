@@ -262,6 +262,7 @@ int execute() {
 		case ' ': break;
 		case 'A'...'G': if(tickinbeat==0) { playNote(c); } else { cursor--; } return 0;
 		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
+		case '.': if(tickinbeat==15) { printf("stop\n"); playRawNote(255); } else { cursor--; } return 0;
 		default: return -1;
 		}
 		if(cursor==0) return -1;
