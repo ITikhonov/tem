@@ -330,14 +330,28 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 	} else {
 		switch(event->keyval) {
 		case GDK_Escape: gtk_main_quit(); break;
-		case GDK_BackSpace: cursor--; cursor%=(80*20); viewbuf[cursor]=' '; break;
 		case GDK_Left: cursor--; break;
 		case GDK_Right: cursor++; break;
 		case GDK_Up: cursor-=80; break;
 		case GDK_Down: cursor+=80; break;
 		case GDK_Return: cursor=(cursor/80+1)*80;; break;
+		case GDK_BackSpace: {
+			int pos=cursor%80;
+			if(pos>0) {
+				memmove(viewbuf+cursor-1,viewbuf+cursor,80-pos);
+				viewbuf[cursor+80-pos-1]=' ';
+				cursor--;
+				cursor%=(80*20);
+			} else {
+				cursor--;
+				cursor%=(80*20);
+				viewbuf[cursor]=' ';
+			}
+		} break;
 		default:
 			if(event->length==1) {
+				int pos=cursor%80;
+				memmove(viewbuf+cursor+1,viewbuf+cursor,80-pos-1);
 				viewbuf[cursor++]=event->string[0];
 			}
 		}
