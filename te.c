@@ -345,7 +345,8 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 			for(;cursor%80 && viewbuf[cursor]!=' ';) { cursor--; }
 			offset=0; pa_stream_cork(ps,0,0,0);
 		} break;
-		case GDK_l: cursor=(cursor/80)*80; offset=0; pa_stream_cork(ps,0,0,0); break;
+		case GDK_k: memset(viewbuf+cursor,' ',80-cursor%80); break;
+		case GDK_r: cursor=(cursor/80)*80; offset=0; pa_stream_cork(ps,0,0,0); break;
 		case GDK_s: save(); break;
 		case GDK_Return: {
 				if(cursor/80<19) {
