@@ -319,13 +319,35 @@ static gboolean on_expose_event(GtkWidget *widget, GdkEventExpose *event, gpoint
 	return FALSE;
 }
 
+void save() {
+	FILE *f=fopen(".test.snd","w");
+	fwrite(viewbuf,80*20,1,f);
+	fclose(f);
+	rename("test.snd","test.snd~");
+	rename(".test.snd","test.snd");
+}
+
 static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data) {
 	printf("pressed %s\n",event->string);
 
 	if(event->state&GDK_MOD1_MASK) {
 		switch(event->keyval) {
 		//case GDK_p: start_sound((cursor/80)*80); break;
-		case GDK_e: offset=0; pa_stream_cork(ps,0,0,0); break;
+		case GDK_e: {
+			for(;cursor%80 && viewbuf[cursor]!=' ';) { cursor--; }
+			offset=0; pa_stream_cork(ps,0,0,0);
+		} break;
+		case GDK_l: cursor=(cursor/80)*80; offset=0; pa_stream_cork(ps,0,0,0); break;
+		case GDK_s: save(); break;
+		case GDK_Return: {
+				if(cursor/80<19) {
+					int nl=(cursor/80+1)*80;
+					memmove(viewbuf+nl+80,viewbuf+nl,80*20-nl-80);
+					memmove(viewbuf+nl,viewbuf+cursor,80-cursor%80);
+					memset(viewbuf+cursor,' ',80-cursor%80);
+					cursor=nl;
+				}
+			} break;
 		}
 	} else {
 		switch(event->keyval) {
