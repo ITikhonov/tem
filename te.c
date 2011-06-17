@@ -23,7 +23,24 @@ inline char gc() {
 	return c;
 }
 
-int play[16]={-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1,-1};
+struct action;
+
+typedef int32_t (*action_func)(int32_t v, struct action *a, int offset);
+
+struct {
+	int sound;
+} channel;
+
+struct {
+	int len;
+	struct action {
+		action_func f;
+		union {
+			void *p;
+			uint8_t u8;
+		};
+	} action[16];
+} stack;
 
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -101,6 +118,13 @@ int defineSound() {
 	return generateSound(n);
 }
 
+void clear_stack() { stack.len=0; }
+
+struct action *push_stack(action_func f) {
+	stack.action[stack.len].f=f;
+	return stack.action+(stack.len++);
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 // AUDIO OUTPUT
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -116,7 +140,7 @@ static void pa_state_cb(pa_context *c, void *userdata) {
 	}
 }
 
-int ticksize=12000/16; // one 16th of 1/8 second beat (at 96kHz)
+int ticksize=12000/16; // one 16th of 1/8 second beat is 750 samples at 96kHz
 static int offset=0;
 static int beatno=0;
 static int tickinbeat=0;
@@ -140,11 +164,8 @@ static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 
 		int k;
 		int32_t v=0;
-		for(k=0;k<16;k++) {
-			int x=play[k];
-			int note=x&0xff;
-			if(note==0xff) continue;
-			v+=resample(x>>8,x&0xff,offset+i);
+		for(k=0;k<stack.len;k++) {
+			v=stack.action[k].f(v,stack.action+k,offset+i);
 		}
 		buf[i]=v;
 	}
@@ -197,17 +218,17 @@ void audio_init() {
 		PA_STREAM_INTERPOLATE_TIMING|PA_STREAM_ADJUST_LATENCY|PA_STREAM_AUTO_TIMING_UPDATE|PA_STREAM_START_CORKED,NULL,NULL);
 }
 
+int32_t action_play_note(int32_t v, struct action *a, int offset) {
+	return v+resample(channel.sound,a->u8,offset);
+}
+
 int setSound() {
-	play[0]=(gsnd()<<8)|255;
-	printf("setting sound %d\n",play[0]);
+	channel.sound=gsnd();
+	printf("setting sound %d\n",channel.sound);
 	return 0;
 }
 
-void playRawNote(uint8_t note) {
-	play[0]=(play[0]&0xffffff00)|note;
-}
-
-int playNote(char c0) {
+int pushNote(char c0) {
 	int sharp=0;
 	char c=gc();
 	if(c=='#') { sharp=1; c=gc(); }
@@ -245,7 +266,7 @@ int playNote(char c0) {
 	printf("play note %c%s%c (%u)\n",c0,sharp?"#":"",c,note);
 
 	// 0 is F#, A is 3
-	playRawNote(note);
+	push_stack(action_play_note)->u8=note;
 	return 0;
 }
 
@@ -260,9 +281,9 @@ int execute() {
 		case 'd': defineSound(); break;
 		case 's': setSound(); break;
 		case ' ': break;
-		case 'A'...'G': if(tickinbeat==0) { playNote(c); } else { cursor--; } return 0;
+		case 'A'...'G': if(tickinbeat==0) { clear_stack(); pushNote(c); } else { cursor--; } return 0;
 		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
-		case '.': if(tickinbeat==15) { printf("stop\n"); playRawNote(255); } else { cursor--; } return 0;
+		case '.': if(tickinbeat==15) { printf("stop\n"); clear_stack(); } else { cursor--; } return 0;
 		default: return -1;
 		}
 		if(cursor==0) return -1;
@@ -441,7 +462,7 @@ gpointer tick(gpointer _) {
 		if(execute()==-1) {
 			pa_stream_cork(ps,1,0,0);
 			pa_stream_flush(ps,0,0);
-			playRawNote(255);
+			clear_stack();
 			printf("stop");
 		}
 	}
