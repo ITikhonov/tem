@@ -282,6 +282,7 @@ int execute() {
 		case 's': setSound(); break;
 		case ' ': break;
 		case 'A'...'G': if(tickinbeat==0) { clear_stack(); pushNote(c); } else { cursor--; } return 0;
+		case '\'': pushNote(gc()); break;
 		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
 		case '.': if(tickinbeat==15) { printf("stop\n"); clear_stack(); } else { cursor--; } return 0;
 		default: return -1;
