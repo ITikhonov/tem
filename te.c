@@ -38,6 +38,7 @@ struct {
 		union {
 			void *p;
 			uint8_t u8;
+			uint32_t u32;
 		};
 	} action[32];
 } stack;
@@ -125,6 +126,14 @@ struct action *push_stack(action_func f) {
 	return stack.action+(stack.len++);
 }
 
+void pop_stack() {
+	stack.len--;
+}
+
+struct action *tos() {
+	return &stack.action[stack.len-1];
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 // AUDIO OUTPUT
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -151,13 +160,10 @@ static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 
 	if(pa_stream_is_corked(s)) return;
 
-	printf("cb %lu\n",length);
-
 	for(i=0;i<length/4;i++) {
 		if((offset+i-1)/ticksize != (offset+i)/ticksize) {
 			beatno=offset/(ticksize*16);
 			tickinbeat=(offset/ticksize)%16;
-			printf("signal\n");
 			g_cond_signal(tickcond);
 		}
 
@@ -222,6 +228,14 @@ int32_t action_play_note(int32_t v, struct action *a, int offset) {
 	return v+resample(channel.sound,a->u8,offset);
 }
 
+int32_t action_cut(int32_t v, struct action *a, int offset) {
+	if(beatno==a->u32 && tickinbeat>14) {
+		printf("HOLD %u %u\n",beatno,a->u32);
+		return 0;
+	}
+	return v;
+}
+
 int setSound() {
 	channel.sound=gsnd();
 	printf("setting sound %d\n",channel.sound);
@@ -270,6 +284,10 @@ int pushNote(char c0) {
 	return 0;
 }
 
+void pushCut() {
+	push_stack(action_cut)->u32=beatno;
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 // COMMANDS
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -284,7 +302,7 @@ int execute() {
 		case 'A'...'G': if(tickinbeat==0) { clear_stack(); pushNote(c); } else { cursor--; } return 0;
 		case '\'': pushNote(gc()); break;
 		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
-		case '.': if(tickinbeat==15) { printf("stop\n"); clear_stack(); } else { cursor--; } return 0;
+		case '.': pushCut(); break;
 		default: return -1;
 		}
 		if(cursor==0) return -1;
@@ -443,7 +461,6 @@ void load() {
 GtkWidget *window;
 
 gboolean update_view(gpointer _) {
-	printf("update_view\n");
 	gdk_window_invalidate_rect(gtk_widget_get_window(window),0,1);
 
 	return FALSE;
