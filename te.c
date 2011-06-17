@@ -39,7 +39,7 @@ struct {
 			void *p;
 			uint8_t u8;
 		};
-	} action[16];
+	} action[32];
 } stack;
 
 
