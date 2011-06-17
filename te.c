@@ -229,12 +229,16 @@ int32_t action_play_note(int32_t v, struct action *a, int offset) {
 }
 
 int32_t action_cut(int32_t v, struct action *a, int offset) {
-	if(beatno==a->u32 && tickinbeat>14) {
-		printf("HOLD %u %u\n",beatno,a->u32);
-		return 0;
-	}
+	if(beatno==a->u32 && tickinbeat>14) { return 0; }
 	return v;
 }
+
+int32_t action_hold(int32_t v, struct action *a, int offset) {
+	if(beatno==a->u32) { return 0; }
+	else if(tos()==a) { pop_stack(); }
+	return v;
+}
+
 
 int setSound() {
 	channel.sound=gsnd();
@@ -288,6 +292,10 @@ void pushCut() {
 	push_stack(action_cut)->u32=beatno;
 }
 
+void pushHold() {
+	push_stack(action_hold)->u32=beatno;
+}
+
 //////////////////////////////////////////////////////////////////////////////////////////
 // COMMANDS
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -302,6 +310,7 @@ int execute() {
 		case 'A'...'G': if(tickinbeat==0) { clear_stack(); pushNote(c); } else { cursor--; } return 0;
 		case '\'': pushNote(gc()); break;
 		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
+		case 'h': if(tickinbeat==0) { pushHold(); } else { cursor--; } return 0;
 		case '.': pushCut(); break;
 		default: return -1;
 		}
