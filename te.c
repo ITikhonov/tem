@@ -385,7 +385,7 @@ void save() {
 }
 
 static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data) {
-	printf("pressed %s\n",event->string);
+	printf("pressed %s (%s)\n",event->string,gdk_keyval_name(event->keyval));
 
 	if(event->state&GDK_MOD1_MASK) {
 		switch(event->keyval) {
@@ -415,6 +415,8 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 		case GDK_Up: cursor-=80; break;
 		case GDK_Down: cursor+=80; break;
 		case GDK_Return: cursor=(cursor/80+1)*80;; break;
+		case GDK_KEY_Home: cursor=(cursor/80)*80; break;
+		case GDK_KEY_End: cursor=(cursor/80+1)*80-1; for(;(cursor%80) && viewbuf[cursor]==' ';cursor--);; cursor++; break;
 		case GDK_BackSpace: {
 			int pos=cursor%80;
 			if(pos>0) {
