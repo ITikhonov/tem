@@ -394,9 +394,17 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 			for(;cursor%80 && viewbuf[cursor]!=' ';) { cursor--; }
 			offset=0; pa_stream_cork(ps,0,0,0);
 		} break;
-		case GDK_KEY_k: memset(viewbuf+cursor,' ',80-cursor%80); break;
+		case GDK_KEY_d: memset(viewbuf+cursor,' ',80-cursor%80); break;
 		case GDK_KEY_r: cursor=(cursor/80)*80; offset=0; pa_stream_cork(ps,0,0,0); break;
 		case GDK_KEY_s: save(); break;
+
+		case GDK_KEY_h: cursor--; break;
+		case GDK_KEY_l: cursor++; break;
+		case GDK_KEY_k: cursor-=80; break;
+		case GDK_KEY_j: cursor+=80; break;
+		case GDK_KEY_H: cursor=(cursor/80)*80; break;
+		case GDK_KEY_L: cursor=(cursor/80+1)*80-1; for(;(cursor%80) && viewbuf[cursor]==' ';cursor--);; cursor++; break;
+
 		case GDK_KEY_Return: {
 				if(cursor/80<19) {
 					int nl=(cursor/80+1)*80;
@@ -410,13 +418,7 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 	} else {
 		switch(event->keyval) {
 		case GDK_KEY_Escape: gtk_main_quit(); break;
-		case GDK_KEY_Left: cursor--; break;
-		case GDK_KEY_Right: cursor++; break;
-		case GDK_KEY_Up: cursor-=80; break;
-		case GDK_KEY_Down: cursor+=80; break;
 		case GDK_KEY_Return: cursor=(cursor/80+1)*80;; break;
-		case GDK_KEY_Home: cursor=(cursor/80)*80; break;
-		case GDK_KEY_End: cursor=(cursor/80+1)*80-1; for(;(cursor%80) && viewbuf[cursor]==' ';cursor--);; cursor++; break;
 		case GDK_KEY_BackSpace: {
 			int pos=cursor%80;
 			if(pos>0) {
