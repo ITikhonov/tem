@@ -384,8 +384,25 @@ void save() {
 	rename(".test.snd","test.snd");
 }
 
+int jam=0;
+
+void jam_keyrelease(unsigned int k) {
+}
+void jam_keypress(unsigned int k) {
+	if(k==GDK_KEY_Tab) { jam=0; return; }
+
+	push_stack(action_play_note)->u8=64;
+}
+
+static gboolean on_keyrelease(GtkWidget *widget, GdkEventKey *event, gpointer data) {
+	if(jam) { jam_keyrelease(event->keyval); return FALSE; }
+	return FALSE;
+}
+
 static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data) {
 	printf("pressed %s (%s)\n",event->string,gdk_keyval_name(event->keyval));
+
+	if(jam) { jam_keypress(event->keyval); return FALSE; }
 
 	if(event->state&GDK_MOD1_MASK) {
 		switch(event->keyval) {
@@ -418,6 +435,7 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 	} else {
 		switch(event->keyval) {
 		case GDK_KEY_Escape: gtk_main_quit(); break;
+		case GDK_KEY_Tab: jam=1; break;
 		case GDK_KEY_Return: cursor=(cursor/80+1)*80;; break;
 		case GDK_KEY_BackSpace: {
 			int pos=cursor%80;
@@ -518,6 +536,7 @@ int main(int argc,char *argv[])
 
 	g_signal_connect(window,"destroy",G_CALLBACK (gtk_main_quit),NULL);
 	g_signal_connect(window,"key-press-event",G_CALLBACK(on_keypress),NULL);
+	g_signal_connect(window,"key-release-event",G_CALLBACK(on_keyrelease),NULL);
 	gtk_widget_add_events(window,GDK_KEY_PRESS_MASK);
 
 	GtkWidget *a=gtk_drawing_area_new();
