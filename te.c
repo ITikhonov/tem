@@ -301,6 +301,17 @@ void pushHold() {
 // COMMANDS
 //////////////////////////////////////////////////////////////////////////////////////////
 
+void print_stack() {
+	int k; printf("stack: ");
+	for(k=0;k<stack.len;k++) {
+		if(stack.action[k].f==action_play_note) {
+			printf("note %hhu; ",stack.action[k].u8);
+		} else {printf("other; ");}
+	}
+	printf("\n");
+}
+
+
 int execute() {
 	for(;;) {
 		char c;
@@ -396,18 +407,30 @@ void jam_end(pa_stream *ps,int ok,void *_) {
 }
 
 void jam_keyrelease(unsigned int k) {
-	int i;
-	for(i=stack.len-1;i>=0;i--) {
-		if(stack.action[i].f==action_play_note) {
-			
-		}
+	int i,m=0;
+	uint8_t n=lettertonote(k);
+	if(n==255) return;
+	printf("release %hhu\n",n); print_stack();
+
+	for(i=0;i<stack.len;i++) {
+		if(stack.action[i].f==action_play_note && stack.action[i].u8==n) { m++; continue; }
+		if(m>0) stack.action[i-m]=stack.action[i];
 	}
+	stack.len-=m;
+	printf("/release\n"); print_stack();
 }
 
 void jam_keypress(unsigned int k) {
 	if(k==GDK_KEY_Tab) { pa_stream_cork(ps,1,jam_end,0); return; }
 
-	push_stack(action_play_note)->u8=lettertonote(k);
+	uint8_t n=lettertonote(k);
+	if(n==255) return;
+
+	int i;
+	for(i=0;i<stack.len;i++) {
+		if(stack.action[i].f==action_play_note && stack.action[i].u8==n) return;
+	}
+	push_stack(action_play_note)->u8=n;
 }
 
 static gboolean on_keyrelease(GtkWidget *widget, GdkEventKey *event, gpointer data) {
@@ -521,15 +544,9 @@ gpointer tick(gpointer _) {
 		g_cond_wait(tickcond,tickmutex);
 		g_mutex_unlock(tickmutex);
 
-		printf("tick %u (%u in %u)\n",offset,tickinbeat,beatno);
+		//printf("tick %u (%u in %u)\n",offset,tickinbeat,beatno);
 
-		int k; printf("stack: ");
-		for(k=0;k<stack.len;k++) {
-			if(stack.action[k].f==action_play_note) {
-				printf("note %hhu; ",stack.action[k].u8);
-			} else {printf("other; ");}
-		}
-		printf("\n");
+
 		g_idle_add(update_view,0);
 
 		if(jam) continue;
