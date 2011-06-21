@@ -13,6 +13,7 @@ int32_t sounds[26*26][4096]; // 23.44Hz
 char viewbuf[80*20];
 int cursor=0;
 int lastsound=0;
+int jam=0;
 
 GCond* tickcond=0;
 GMutex *tickmutex=0;
@@ -384,14 +385,29 @@ void save() {
 	rename(".test.snd","test.snd");
 }
 
-int jam=0;
+uint8_t lettertonote(char c) {
+	const uint8_t map[256]={255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,54,255,56,58,69,255,55,57,255,60,62,64,255,67,255,57,255,72,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,255,71,255,73,255,255,255,255,49,46,45,58,255,48,50,66,52,255,55,53,51,68,70,54,59,43,61,65,47,56,44,63,42,255,255,255,255,255};
+	return c<0?255:map[(int)c];
+
+}
+
+void jam_end(pa_stream *ps,int ok,void *_) {
+	jam=0;
+}
 
 void jam_keyrelease(unsigned int k) {
+	int i;
+	for(i=stack.len-1;i>=0;i--) {
+		if(stack.action[i].f==action_play_note) {
+			
+		}
+	}
 }
-void jam_keypress(unsigned int k) {
-	if(k==GDK_KEY_Tab) { jam=0; return; }
 
-	push_stack(action_play_note)->u8=64;
+void jam_keypress(unsigned int k) {
+	if(k==GDK_KEY_Tab) { pa_stream_cork(ps,1,jam_end,0); return; }
+
+	push_stack(action_play_note)->u8=lettertonote(k);
 }
 
 static gboolean on_keyrelease(GtkWidget *widget, GdkEventKey *event, gpointer data) {
@@ -435,7 +451,7 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 	} else {
 		switch(event->keyval) {
 		case GDK_KEY_Escape: gtk_main_quit(); break;
-		case GDK_KEY_Tab: jam=1; break;
+		case GDK_KEY_Tab: jam=1; pa_stream_cork(ps,0,0,0); break;
 		case GDK_KEY_Return: cursor=(cursor/80+1)*80;; break;
 		case GDK_KEY_BackSpace: {
 			int pos=cursor%80;
@@ -506,7 +522,17 @@ gpointer tick(gpointer _) {
 		g_mutex_unlock(tickmutex);
 
 		printf("tick %u (%u in %u)\n",offset,tickinbeat,beatno);
+
+		int k; printf("stack: ");
+		for(k=0;k<stack.len;k++) {
+			if(stack.action[k].f==action_play_note) {
+				printf("note %hhu; ",stack.action[k].u8);
+			} else {printf("other; ");}
+		}
+		printf("\n");
 		g_idle_add(update_view,0);
+
+		if(jam) continue;
 
 		if(execute()==-1) {
 			pa_stream_cork(ps,1,0,0);
