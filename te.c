@@ -473,6 +473,14 @@ static gboolean on_keypress(GtkWidget *widget, GdkEventKey *event, gpointer data
 		}
 	} else {
 		switch(event->keyval) {
+		case GDK_KEY_Left: cursor--; break;
+		case GDK_KEY_Right: cursor++; break;
+		case GDK_KEY_Up: cursor-=80; break;
+		case GDK_KEY_Down: cursor+=80; break;
+		case GDK_KEY_Home: cursor=(cursor/80)*80; break;
+		case GDK_KEY_End: cursor=(cursor/80+1)*80-1; for(;(cursor%80) && viewbuf[cursor]==' ';cursor--);; cursor++; break;
+
+
 		case GDK_KEY_Escape: gtk_main_quit(); break;
 		case GDK_KEY_Tab: jam=1; pa_stream_cork(ps,0,0,0); break;
 		case GDK_KEY_Return: cursor=(cursor/80+1)*80;; break;
