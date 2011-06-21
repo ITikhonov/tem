@@ -152,8 +152,10 @@ static void pa_state_cb(pa_context *c, void *userdata) {
 
 int ticksize=12000/16; // one 16th of 1/8 second beat is 750 samples at 96kHz
 static int offset=0;
-static int beatno=0;
-static int tickinbeat=0;
+static int tickno=-1;
+
+int beatno() { return tickno/16; }
+int tickinbeat() { return tickno%16; }
 
 static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 	int i;
@@ -163,9 +165,12 @@ static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 
 	for(i=0;i<length/4;i++) {
 		if((offset+i-1)/ticksize != (offset+i)/ticksize) {
-			beatno=offset/(ticksize*16);
-			tickinbeat=(offset/ticksize)%16;
-			g_cond_signal(tickcond);
+			int ntickno=(offset/ticksize);
+			if(ntickno!=tickno) {
+				tickno=ntickno;
+				printf("signal %u %u (%u)\n",beatno(),tickinbeat(),offset+i);
+				g_cond_signal(tickcond);
+			}
 		}
 
 
@@ -230,12 +235,12 @@ int32_t action_play_note(int32_t v, struct action *a, int offset) {
 }
 
 int32_t action_cut(int32_t v, struct action *a, int offset) {
-	if(beatno==a->u32 && tickinbeat>14) { return 0; }
+	if(beatno()==a->u32 && tickinbeat()>14) { return 0; }
 	return v;
 }
 
 int32_t action_hold(int32_t v, struct action *a, int offset) {
-	if(beatno==a->u32) { return 0; }
+	if(beatno()==a->u32) { return 0; }
 	else if(tos()==a) { pop_stack(); }
 	return v;
 }
@@ -290,11 +295,11 @@ int pushNote(char c0) {
 }
 
 void pushCut() {
-	push_stack(action_cut)->u32=beatno;
+	push_stack(action_cut)->u32=beatno();
 }
 
 void pushHold() {
-	push_stack(action_hold)->u32=beatno;
+	push_stack(action_hold)->u32=beatno();
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -319,11 +324,11 @@ int execute() {
 		case 'd': defineSound(); break;
 		case 's': setSound(); break;
 		case ' ': break;
-		case 'A'...'G': if(tickinbeat==0) { clear_stack(); pushNote(c); } else { cursor--; } return 0;
+		case 'A'...'G': if(tickinbeat()==0) { clear_stack(); pushNote(c); } else { cursor--; } return 0;
 		case '\'': pushNote(gc()); break;
-		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
-		case 'h': if(tickinbeat==0) { pushHold(); } else { cursor--; } return 0;
-		case '0': printf("clear_stack %u\n",tickinbeat); clear_stack(); break;
+		case '-': if(tickinbeat()==0) { ; } else { cursor--; } return 0;
+		case 'h': if(tickinbeat()==0) { pushHold(); } else { cursor--; } return 0;
+		case '0': printf("clear_stack %u\n",tickinbeat()); clear_stack(); break;
 		case '.': pushCut(); break;
 		default: return -1;
 		}
@@ -553,7 +558,7 @@ gpointer tick(gpointer _) {
 		g_cond_wait(tickcond,tickmutex);
 		g_mutex_unlock(tickmutex);
 
-		printf("tick %u (%u in %u)\n",offset,tickinbeat,beatno);
+		printf("tick %u (%u in %u)\n",offset,tickinbeat(),beatno());
 
 
 		g_idle_add(update_view,0);
@@ -564,6 +569,7 @@ gpointer tick(gpointer _) {
 			pa_stream_cork(ps,1,0,0);
 			pa_stream_flush(ps,0,0);
 			clear_stack();
+			tickno=-1;
 			printf("stop");
 		}
 	}
