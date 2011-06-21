@@ -323,6 +323,7 @@ int execute() {
 		case '\'': pushNote(gc()); break;
 		case '-': if(tickinbeat==0) { ; } else { cursor--; } return 0;
 		case 'h': if(tickinbeat==0) { pushHold(); } else { cursor--; } return 0;
+		case '0': printf("clear_stack %u\n",tickinbeat); clear_stack(); break;
 		case '.': pushCut(); break;
 		default: return -1;
 		}
@@ -552,7 +553,7 @@ gpointer tick(gpointer _) {
 		g_cond_wait(tickcond,tickmutex);
 		g_mutex_unlock(tickmutex);
 
-		//printf("tick %u (%u in %u)\n",offset,tickinbeat,beatno);
+		printf("tick %u (%u in %u)\n",offset,tickinbeat,beatno);
 
 
 		g_idle_add(update_view,0);
