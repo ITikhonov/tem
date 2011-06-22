@@ -165,9 +165,11 @@ static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 		if((offset+i-1)/ticksize != (offset+i)/ticksize) {
 			int ntickno=(offset/ticksize);
 			if(ntickno!=tickno) {
+				g_mutex_lock(tickmutex);
 				tickno=ntickno;
 				printf("signal %u %u (%u)\n",beatno(),tickinbeat(),offset+i);
 				g_cond_signal(tickcond);
+				g_mutex_unlock(tickmutex);
 			}
 		}
 
@@ -579,22 +581,21 @@ gpointer tick(gpointer _) {
 	for(;;) {
 		g_mutex_lock(tickmutex);
 		g_cond_wait(tickcond,tickmutex);
-		g_mutex_unlock(tickmutex);
-
 		printf("tick %u (%u in %u)\n",offset,tickinbeat(),beatno());
 
 
 		g_idle_add(update_view,0);
 
-		if(jam) continue;
-
-		if(execute()==-1) {
-			pa_stream_cork(ps,1,0,0);
-			pa_stream_flush(ps,0,0);
-			clear_stack();
-			tickno=-1;
-			printf("stop");
+		if(!jam) {
+			if(execute()==-1) {
+				pa_stream_cork(ps,1,0,0);
+				pa_stream_flush(ps,0,0);
+				clear_stack();
+				tickno=-1;
+				printf("stop");
+			}
 		}
+		g_mutex_unlock(tickmutex);
 	}
 	return 0;
 }
