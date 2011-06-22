@@ -40,6 +40,7 @@ struct {
 			void *p;
 			uint8_t u8;
 			uint32_t u32;
+			float f32;
 		};
 	} action[32];
 } stack;
@@ -49,8 +50,8 @@ struct {
 // SOUND GENERATION
 //////////////////////////////////////////////////////////////////////////////////////////
 
-int32_t resample(int sndno,int note,int sampleno) {
-	float r=exp2(note/12.0);
+int32_t resample(int sndno,uint32_t ri,int sampleno) {
+	float r=ri/1000.0;
 	float s=sampleno*r;
 	float e=s+r;
 	int is=((int)s);
@@ -230,8 +231,8 @@ void audio_init() {
 		PA_STREAM_INTERPOLATE_TIMING|PA_STREAM_ADJUST_LATENCY|PA_STREAM_AUTO_TIMING_UPDATE|PA_STREAM_START_CORKED,NULL,NULL);
 }
 
-int32_t action_play_note(int32_t v, struct action *a, int offset) {
-	return v+resample(channel.sound,a->u8,offset);
+int32_t action_play_sound(int32_t v, struct action *a, int offset) {
+	return v+resample(channel.sound,a->u32,offset);
 }
 
 int32_t action_cut(int32_t v, struct action *a, int offset) {
@@ -250,6 +251,10 @@ int setSound() {
 	channel.sound=gsnd();
 	printf("setting sound %d\n",channel.sound);
 	return 0;
+}
+
+uint32_t note2freq(int note) {
+	return exp2(note/12.0)*1000;
 }
 
 int pushNote(char c0) {
@@ -290,7 +295,7 @@ int pushNote(char c0) {
 	printf("play note %c%s%c (%u)\n",c0,sharp?"#":"",c,note);
 
 	// 0 is F#, A is 3
-	push_stack(action_play_note)->u8=note;
+	push_stack(action_play_sound)->u32=note2freq(note);
 	return 0;
 }
 
@@ -309,8 +314,8 @@ void pushHold() {
 void print_stack() {
 	int k; printf("stack: ");
 	for(k=0;k<stack.len;k++) {
-		if(stack.action[k].f==action_play_note) {
-			printf("note %hhu; ",stack.action[k].u8);
+		if(stack.action[k].f==action_play_sound) {
+			printf("note %u; ",(int)log2(stack.action[k].u32/1000.0));
 		} else {printf("other; ");}
 	}
 	printf("\n");
@@ -416,10 +421,11 @@ void jam_keyrelease(unsigned int k) {
 	int i,m=0;
 	uint8_t n=lettertonote(k);
 	if(n==255) return;
+	uint32_t f=note2freq(n);
 	printf("release %hhu\n",n); print_stack();
 
 	for(i=0;i<stack.len;i++) {
-		if(stack.action[i].f==action_play_note && stack.action[i].u8==n) { m++; continue; }
+		if(stack.action[i].f==action_play_sound && stack.action[i].u32==f) { m++; continue; }
 		if(m>0) stack.action[i-m]=stack.action[i];
 	}
 	stack.len-=m;
@@ -431,12 +437,13 @@ void jam_keypress(unsigned int k) {
 
 	uint8_t n=lettertonote(k);
 	if(n==255) return;
+	uint32_t f=note2freq(n);
 
 	int i;
 	for(i=0;i<stack.len;i++) {
-		if(stack.action[i].f==action_play_note && stack.action[i].u8==n) return;
+		if(stack.action[i].f==action_play_sound && stack.action[i].u32==f) return;
 	}
-	push_stack(action_play_note)->u8=n;
+	push_stack(action_play_sound)->u32=f;
 }
 
 static gboolean on_keyrelease(GtkWidget *widget, GdkEventKey *event, gpointer data) {
