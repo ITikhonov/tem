@@ -149,7 +149,7 @@ static void pa_state_cb(pa_context *c, void *userdata) {
 }
 
 int ticksize=12000/16; // one 16th of 1/8 second beat is 750 samples at 96kHz
-static int offset=0;
+static unsigned int offset=0;
 static int tickno=-1;
 
 int beatno() { return tickno/16; }
@@ -163,7 +163,7 @@ static void audio_request_cb(pa_stream *s, size_t length, void *userdata) {
 
 	for(i=0;i<length/4;i++) {
 		if((offset+i-1)/ticksize != (offset+i)/ticksize) {
-			int ntickno=(offset/ticksize);
+			int ntickno=(offset+i)/ticksize;
 			if(ntickno!=tickno) {
 				g_mutex_lock(tickmutex);
 				tickno=ntickno;
@@ -336,7 +336,7 @@ void print_stack() {
 	int k; printf("stack: ");
 	for(k=0;k<stack.len;k++) {
 		if(stack.action[k].f==action_play_sound) {
-			printf("note %u; ",(int)log2(stack.action[k].u32/1000.0));
+			printf("note %u(%u); ",stack.action[k].u32,stack.action[k].a.u32);
 		} else {printf("other; ");}
 	}
 	printf("\n");
@@ -586,6 +586,7 @@ GThread *tick_thread;
 void corked(pa_stream *ps,int ok,void *_) {
 	clear_stack();
 	tickno=-1;
+	offset=0;
 	printf("stop");
 }
 
@@ -594,6 +595,7 @@ gpointer tick(gpointer _) {
 		g_mutex_lock(tickmutex);
 		g_cond_wait(tickcond,tickmutex);
 		printf("tick %u (%u in %u)\n",offset,tickinbeat(),beatno());
+		print_stack();
 
 
 		g_idle_add(update_view,0);
