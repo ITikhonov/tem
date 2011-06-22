@@ -37,7 +37,7 @@ struct {
 	struct action {
 		action_func f;
 		union { void *p; uint8_t u8; uint32_t u32; float f32; };
-		union { void *p; uint8_t u8; uint32_t u32; float f32; } a;
+		union { void *p; uint8_t u8; uint32_t u32; float f32; } a,b;
 
 	} action[32];
 } stack;
@@ -66,8 +66,8 @@ int32_t resample(int sndno,uint32_t ri,int sampleno) {
 
 	int ret=round((vs+v+ve)/(ps+n+pe));
 
-	//printf("resample(%u %0.2f %0.2f(%u) %0.2f(%u)): %u %d %d ([%0.2f]%d+%d+%d[%0.2f])\n",
-	//			sndno, r,s,is,e,es, sampleno,ret,n, ps,vs,v,ve,pe);
+	if(sampleno%12000==0) printf("resample(%u %u:%0.2f %0.2f(%u) %0.2f(%u)): %u %d %d ([%0.2f]%d+%d+%d[%0.2f])\n",
+				sndno, ri,r,s,is,e,es, sampleno,ret,n, ps,vs,v,ve,pe);
 	return ret;
 }
 
@@ -231,7 +231,7 @@ void audio_init() {
 }
 
 int32_t action_play_sound(int32_t v, struct action *a, int offset) {
-	return v+resample(channel.sound,a->u32,offset);
+	return v+resample(channel.sound,a->u32,offset-a->b.u32);
 }
 
 int32_t action_cut(int32_t v, struct action *a, int offset) {
@@ -249,9 +249,11 @@ int32_t action_portamento(int32_t v, struct action *a, int offset) {
 	struct action *p=a-1;
 
 	uint32_t delta=(offset-a->u32*ticksize);
-
 	for(;p>=stack.action;p--) {
-		if(p->f==action_play_sound) p->u32=p->a.u32*exp2(delta/12000.0);
+		if(p->f==action_play_sound) {
+			p->u32=p->a.u32*exp2(delta/12000.0);
+			if(offset%12000==0) printf("portamento %lu delta %u (%u-%u) = %u\n",p-stack.action,delta,offset,a->u32*ticksize,p->u32);
+		}
 	}
 	return v;
 }
@@ -307,6 +309,7 @@ int pushNote(char c0) {
 	// 0 is F#, A is 3
 	struct action *a=push_stack(action_play_sound);
 	a->a.u32=a->u32=note2freq(note);
+	a->b.u32=tickno*ticksize;
 	return 0;
 }
 
