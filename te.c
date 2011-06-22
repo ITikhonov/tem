@@ -37,7 +37,7 @@ struct {
 	struct action {
 		action_func f;
 		union { void *p; uint8_t u8; uint32_t u32; float f32; };
-		union { void *p; uint8_t u8; uint32_t u32; float f32; } a,b;
+		union { void *p; uint8_t u8; uint32_t u32; float f32; int32_t i32; } a,b;
 
 	} action[32];
 } stack;
@@ -251,7 +251,7 @@ int32_t action_portamento(int32_t v, struct action *a, int offset) {
 	uint32_t delta=(offset-a->u32*ticksize);
 	for(;p>=stack.action;p--) {
 		if(p->f==action_play_sound) {
-			p->u32=p->a.u32*exp2(delta/12000.0);
+			p->u32=p->a.u32*exp2((delta*(a->a.i32/12000.0))/12000.0);
 			if(offset%12000==0) printf("portamento %lu delta %u (%u-%u) = %u\n",p-stack.action,delta,offset,a->u32*ticksize,p->u32);
 		}
 	}
@@ -321,9 +321,11 @@ void pushHold() {
 	push_stack(action_hold)->u32=beatno();
 }
 
-void pushPortamento() {
+void pushPortamento(int rate) {
 	printf("push portamento %u\n",tickno);
-	push_stack(action_portamento)->u32=tickno;
+	struct action *a=push_stack(action_portamento);
+	a->u32=tickno;
+	a->a.i32=rate;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -350,7 +352,8 @@ int execute() {
 		case ' ': break;
 		case 'A'...'G': if(tickinbeat()==0) { clear_stack(); pushNote(c); break; } else { cursor--; } return 0;
 		case '\'': pushNote(gc()); break;
-		case '\\': pushPortamento(); break;
+		case '\\': pushPortamento(-12000); break;
+		case '/': pushPortamento(12000); break;
 		case '-': if(tickinbeat()==0) { ; } else { cursor--; } return 0;
 		case 'h': if(tickinbeat()==0) { pushHold(); } else { cursor--; } return 0;
 		case '0': printf("clear_stack %u\n",tickinbeat()); clear_stack(); break;
@@ -580,6 +583,12 @@ gboolean update_view(gpointer _) {
 
 GThread *tick_thread;
 
+void corked(pa_stream *ps,int ok,void *_) {
+	clear_stack();
+	tickno=-1;
+	printf("stop");
+}
+
 gpointer tick(gpointer _) {
 	for(;;) {
 		g_mutex_lock(tickmutex);
@@ -591,11 +600,8 @@ gpointer tick(gpointer _) {
 
 		if(!jam) {
 			if(execute()==-1) {
-				pa_stream_cork(ps,1,0,0);
+				pa_stream_cork(ps,1,corked,0);
 				pa_stream_flush(ps,0,0);
-				clear_stack();
-				tickno=-1;
-				printf("stop");
 			}
 		}
 		g_mutex_unlock(tickmutex);
