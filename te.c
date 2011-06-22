@@ -36,12 +36,9 @@ struct {
 	int len;
 	struct action {
 		action_func f;
-		union {
-			void *p;
-			uint8_t u8;
-			uint32_t u32;
-			float f32;
-		};
+		union { void *p; uint8_t u8; uint32_t u32; float f32; };
+		union { void *p; uint8_t u8; uint32_t u32; float f32; } a;
+
 	} action[32];
 } stack;
 
@@ -246,6 +243,17 @@ int32_t action_hold(int32_t v, struct action *a, int offset) {
 	return v;
 }
 
+int32_t action_portamento(int32_t v, struct action *a, int offset) {
+	struct action *p=a-1;
+
+	uint32_t delta=(offset-a->u32*ticksize);
+
+	for(;p>=stack.action;p--) {
+		if(p->f==action_play_sound) p->u32=p->a.u32*exp2(delta/12000.0);
+	}
+	return v;
+}
+
 
 int setSound() {
 	channel.sound=gsnd();
@@ -295,7 +303,8 @@ int pushNote(char c0) {
 	printf("play note %c%s%c (%u)\n",c0,sharp?"#":"",c,note);
 
 	// 0 is F#, A is 3
-	push_stack(action_play_sound)->u32=note2freq(note);
+	struct action *a=push_stack(action_play_sound);
+	a->a.u32=a->u32=note2freq(note);
 	return 0;
 }
 
@@ -305,6 +314,11 @@ void pushCut() {
 
 void pushHold() {
 	push_stack(action_hold)->u32=beatno();
+}
+
+void pushPortamento() {
+	printf("push portamento %u\n",tickno);
+	push_stack(action_portamento)->u32=tickno;
 }
 
 //////////////////////////////////////////////////////////////////////////////////////////
@@ -329,8 +343,9 @@ int execute() {
 		case 'd': defineSound(); break;
 		case 's': setSound(); break;
 		case ' ': break;
-		case 'A'...'G': if(tickinbeat()==0) { clear_stack(); pushNote(c); } else { cursor--; } return 0;
+		case 'A'...'G': if(tickinbeat()==0) { clear_stack(); pushNote(c); break; } else { cursor--; } return 0;
 		case '\'': pushNote(gc()); break;
+		case '\\': pushPortamento(); break;
 		case '-': if(tickinbeat()==0) { ; } else { cursor--; } return 0;
 		case 'h': if(tickinbeat()==0) { pushHold(); } else { cursor--; } return 0;
 		case '0': printf("clear_stack %u\n",tickinbeat()); clear_stack(); break;
@@ -425,7 +440,7 @@ void jam_keyrelease(unsigned int k) {
 	printf("release %hhu\n",n); print_stack();
 
 	for(i=0;i<stack.len;i++) {
-		if(stack.action[i].f==action_play_sound && stack.action[i].u32==f) { m++; continue; }
+		if(stack.action[i].f==action_play_sound && stack.action[i].a.u32==f) { m++; continue; }
 		if(m>0) stack.action[i-m]=stack.action[i];
 	}
 	stack.len-=m;
@@ -441,9 +456,10 @@ void jam_keypress(unsigned int k) {
 
 	int i;
 	for(i=0;i<stack.len;i++) {
-		if(stack.action[i].f==action_play_sound && stack.action[i].u32==f) return;
+		if(stack.action[i].f==action_play_sound && stack.action[i].a.u32==f) return;
 	}
-	push_stack(action_play_sound)->u32=f;
+	struct action *a=push_stack(action_play_sound);
+	a->a.u32=a->u32=f;
 }
 
 static gboolean on_keyrelease(GtkWidget *widget, GdkEventKey *event, gpointer data) {
